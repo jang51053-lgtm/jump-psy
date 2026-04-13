@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>무한의 계단 2D: 패턴을 찾아라</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a202c;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+        }
+        .energy-bar-container {
+            width: 80%;
+            max-width: 400px;
+            height: 20px;
+            background-color: rgba(0,0,0,0.5);
+            border: 2px solid white;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 0 auto;
+        }
+        #energyBar {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff416c 0%, #ff4b2b 100%);
+            transition: width 0.1s linear, background-color 0.3s;
+        }
+        .touch-zone {
+            position: absolute;
+            bottom: 0;
+            height: 30vh;
+            width: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: rgba(255, 255, 255, 0.4);
+            z-index: 10;
+            transition: width 0.3s, left 0.3s, right 0.3s;
+            text-align: center;
+        }
+        #touchLeft { left: 0; border-right: 1px dashed rgba(255,255,255,0.2); }
+        #touchRight { right: 0; }
+        #touchJump { 
+            width: 34%; 
+            left: 33%; 
+            border-right: 1px dashed rgba(255,255,255,0.2); 
+            border-left: 1px dashed rgba(255,255,255,0.2); 
+            display: none; 
+            background: rgba(255, 255, 255, 0.05); 
+        }
+        .active-touch { background: rgba(255,255,255,0.1) !important; }
+        .level3-touch #touchLeft { width: 33%; }
+        .level3-touch #touchRight { width: 33%; }
+        .level3-touch #touchJump { display: flex; }
+    </style>
+</head>
+<body class="text-white font-sans relative">
+
+    <!-- 좌측 관찰 일지 (패턴 시각화 패널) -->
+    <div id="patternHintPanel" class="absolute left-0 top-1/4 z-10 pointer-events-none transition-opacity duration-300 hidden"></div>
+
+    <!-- UI 레이어 (에너지바, 점수, 재화 표시) -->
+    <div id="uiLayer" class="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-20">
+        <div class="flex justify-between items-start mt-4">
+            <div class="text-left w-1/3">
+                <p id="currencyDisplay" class="text-lg font-bold text-gray-300 drop-shadow-md hidden">🪙 은화: <span id="silverCount">0</span> | ✨ EXP: <span id="expCount">0</span></p>
+            </div>
+            <div class="text-center w-1/3">
+                <h1 id="scoreDisplay" class="text-5xl font-black drop-shadow-md text-yellow-300 transition-transform transform scale-100">0</h1>
+                <p id="levelDisplay" class="text-xl font-bold mt-2 drop-shadow-md">LEVEL 1: 패턴의 시작</p>
+                <p id="comboDisplay" class="text-lg font-bold text-orange-400 mt-1 opacity-0 transition-opacity">0 COMBO!</p>
+            </div>
+            <div class="w-1/3"></div>
+        </div>
+
+        <div id="hudBottom" class="mb-8 opacity-0 transition-opacity duration-300">
+            <div class="energy-bar-container">
+                <div id="energyBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 시작 화면 -->
+    <div id="startScreen" class="absolute inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center z-30 pointer-events-auto backdrop-blur-sm transition-opacity duration-300">
+        <h1 class="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 mb-4 text-center">무한의 계단<br><span class="text-2xl md:text-3xl text-white">수학 패턴을 찾아라!</span></h1>
+        <div class="bg-gray-800 p-6 rounded-xl text-center max-w-sm mb-6 border border-gray-600 shadow-2xl">
+            <p class="text-gray-300 mb-4">계단을 오르며 <span class="text-yellow-400 font-bold">블록의 색깔과 좌측의 관찰 일지 패턴</span>을 잘 기억하세요!</p>
+            <div class="flex justify-around text-sm text-gray-400 mb-2">
+                <div class="flex flex-col items-center">
+                    <kbd class="bg-gray-700 px-3 py-1 rounded text-white mb-1">Z / ⬅️</kbd>
+                    <span>왼쪽 계단</span>
+                </div>
+                <div class="flex flex-col items-center">
+                    <kbd class="bg-gray-700 px-3 py-1 rounded text-white mb-1">X / ➡️</kbd>
+                    <span>오른쪽 계단</span>
+                </div>
+            </div>
+            <p class="text-xs text-blue-300 mt-4">* 스테이지마다 등장하는 체크포인트에서 퀴즈가 시작됩니다.</p>
+        </div>
+        <button id="startBtn" class="bg-gradient-to-r from-green-400 to-blue-500 hover:from-green-500 hover:to-blue-600 text-white font-bold py-3 px-12 rounded-full text-xl shadow-lg transform transition hover:scale-105 active:scale-95">
+            게임 시작
+        </button>
+    </div>
+
+    <!-- 퀴즈 화면 -->
+    <div id="quizScreen" class="absolute inset-0 bg-blue-900 bg-opacity-95 flex flex-col items-center justify-center z-40 hidden backdrop-blur-md pointer-events-auto">
+        <h2 id="quizTitle" class="text-4xl md:text-5xl font-black text-yellow-400 mb-2 drop-shadow-lg">체크포인트 도착!</h2>
+        <p id="quizDesc" class="text-lg md:text-xl text-white mb-8 text-center px-4">방금 지나온 길에서 관찰한 대응관계 패턴을 5칸의 식으로 완성하세요.</p>
+        
+        <div id="quizSlots" class="flex space-x-1 md:space-x-3 mb-8">
+            <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-dashed border-gray-400 flex items-center justify-center text-3xl cursor-pointer bg-gray-800 rounded-xl hover:bg-gray-700 transition" onclick="clearSlot(0)"></div>
+            <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-dashed border-gray-400 flex items-center justify-center text-3xl cursor-pointer bg-gray-800 rounded-xl hover:bg-gray-700 transition" onclick="clearSlot(1)"></div>
+            <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-dashed border-gray-400 flex items-center justify-center text-3xl cursor-pointer bg-gray-800 rounded-xl hover:bg-gray-700 transition" onclick="clearSlot(2)"></div>
+            <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-dashed border-gray-400 flex items-center justify-center text-3xl cursor-pointer bg-gray-800 rounded-xl hover:bg-gray-700 transition" onclick="clearSlot(3)"></div>
+            <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-dashed border-gray-400 flex items-center justify-center text-3xl cursor-pointer bg-gray-800 rounded-xl hover:bg-gray-700 transition" onclick="clearSlot(4)"></div>
+        </div>
+
+        <div id="quizOptions" class="flex flex-wrap justify-center gap-2 max-w-lg mb-6 px-4"></div>
+
+        <p id="quizFeedback" class="text-lg md:text-xl font-bold h-8 text-center mb-6 text-white"></p>
+        
+        <button id="quizSubmitBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-10 rounded-full text-xl shadow-lg mb-4 hidden transform transition active:scale-95" onclick="checkQuiz()">정답 확인</button>
+        
+        <div class="flex space-x-4">
+            <button id="quizMoreBtn" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-full text-lg shadow-lg hidden transform transition active:scale-95" onclick="makeMoreEquation()">다른 식 만들기</button>
+            <button id="quizNextBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full text-lg shadow-lg hidden transform transition active:scale-95" onclick="closeQuiz()">다음 도전 진행!</button>
+        </div>
+    </div>
+
+    <!-- 보스 대화문 화면 -->
+    <div id="dialogueScreen" class="absolute inset-x-0 bottom-0 h-48 bg-black bg-opacity-95 z-50 hidden flex-col items-center justify-center border-t-4 border-red-600 p-6 pointer-events-auto cursor-pointer" onclick="advanceDialogue()">
+        <p class="text-red-500 font-bold text-xl mb-2 w-full max-w-2xl text-left drop-shadow-md">🐙 차원 보스 문어 대왕</p>
+        <p id="dialogueText" class="text-white text-2xl md:text-3xl font-bold w-full max-w-2xl text-left drop-shadow-lg leading-tight"></p>
+        <p class="text-gray-400 text-sm mt-4 animate-pulse">(화면을 터치하여 계속)</p>
+    </div>
+
+    <!-- 보스전 선택 화면 -->
+    <div id="bossPromptScreen" class="absolute inset-0 bg-red-900 bg-opacity-95 flex flex-col items-center justify-center z-40 hidden backdrop-blur-md pointer-events-auto">
+        <h2 class="text-5xl md:text-6xl font-black text-yellow-400 mb-4 drop-shadow-lg text-center">🎉 패턴 마스터! 🎉</h2>
+        <p class="text-xl md:text-2xl text-white mb-8 text-center px-4">마지막 스테이지의 대응 규칙까지 완벽하게 찾아냈습니다!<br><br>저 멀리서 거대한 차원 보스의 기운이 느껴집니다...<br><span class="text-yellow-300 font-bold">주의: 보스전은 다이나믹 횡스크롤 런(Run) 모드입니다.<br>높낮이가 변하는 바닥과 문어를 '더블 점프'로 돌파하세요!</span></p>
+        
+        <div class="flex flex-col space-y-4">
+            <button onclick="startBossMode()" class="bg-red-600 hover:bg-red-700 text-white font-black py-4 px-10 rounded-full text-2xl shadow-xl transform transition active:scale-95 border-4 border-red-400 animate-pulse">🔥 쿠키런 스타일 보스전 도전! 🔥</button>
+            <button onclick="declineBoss()" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-10 rounded-full text-xl shadow-lg transform transition active:scale-95">여기서 만족하기 (클리어)</button>
+        </div>
+    </div>
+
+    <!-- 보스 전리품(보상) 화면 -->
+    <div id="rewardScreen" class="absolute inset-0 bg-purple-900 bg-opacity-95 flex flex-col items-center justify-center z-50 hidden backdrop-blur-md pointer-events-auto">
+        <h2 class="text-5xl font-black text-yellow-400 mb-4 drop-shadow-lg text-center">보스 격파 보상!</h2>
+        <p class="text-xl text-white mb-8 text-center">전리품으로 문어 다리 하나를 고르세요! (8개 중 1개 선택)</p>
+        
+        <div id="legContainer" class="flex flex-wrap justify-center gap-4 max-w-2xl mb-8 px-4">
+            <!-- JS로 버튼 8개 생성 -->
+        </div>
+        
+        <p id="rewardResult" class="text-3xl font-bold text-green-400 mb-6 h-10 text-center drop-shadow-md"></p>
+        
+        <button id="fullResetBtn" class="bg-white text-purple-900 hover:bg-gray-200 font-bold py-3 px-12 rounded-full text-xl shadow-lg hidden transform transition hover:scale-105 active:scale-95" onclick="fullReset()">
+            처음으로 돌아가기 (리셋)
+        </button>
+    </div>
+
+    <!-- 게임 오버 화면 -->
+    <div id="gameOverScreen" class="absolute inset-0 bg-red-900 bg-opacity-90 flex flex-col items-center justify-center z-50 pointer-events-auto hidden backdrop-blur-md">
+        <h1 id="gameOverTitle" class="text-5xl font-black text-white mb-2 drop-shadow-lg">GAME OVER</h1>
+        <p id="deathReason" class="text-xl text-red-300 mb-6 font-bold">떨어졌습니다!</p>
+        
+        <div class="bg-black bg-opacity-50 p-6 rounded-xl text-center mb-8 border border-red-700">
+            <p class="text-gray-400 mb-1">최종 점수</p>
+            <p id="finalScore" class="text-6xl font-black text-yellow-400">0</p>
+        </div>
+
+        <div class="flex flex-col space-y-3">
+            <button id="retryBossBtn" class="bg-yellow-500 hover:bg-yellow-600 text-red-900 font-black py-3 px-12 rounded-full text-xl shadow-lg hidden transform transition hover:scale-105 active:scale-95" onclick="retryBoss()">
+                보스전 재도전 (-50점)
+            </button>
+            <button id="restartBtn" class="bg-white text-red-900 hover:bg-gray-200 font-bold py-3 px-12 rounded-full text-xl shadow-lg transform transition hover:scale-105 active:scale-95" onclick="fullReset()">
+                처음부터 다시 하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 모바일 터치 컨트롤 영역 -->
+    <div id="touchLeft" class="touch-zone pointer-events-auto">왼쪽 계단<br>(LEFT)</div>
+    <div id="touchJump" class="touch-zone pointer-events-auto">점프<br>(JUMP)</div>
+    <div id="touchRight" class="touch-zone pointer-events-auto">오른쪽 계단<br>(RIGHT)</div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const imgCharRight = new Image(); imgCharRight.src = 'https://i.imgur.com/JP7BqS0.png';
+        const imgCharLeft = new Image(); imgCharLeft.src = 'https://i.imgur.com/m5ls5Jq.png';
+        
+        const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+
+        let gameState = 'START'; 
+        let score = 0;
+        let silverCoins = 0;
+        let expAmount = 0;
+        let energy = 100, maxEnergy = 100;
+        let combo = 0, comboTimer = 0;
+        
+        let cw, ch;
+        const stepWidth = 60, stepHeight = 45;
+        let cameraX = 0, cameraY = 0;
+        let targetCameraX = 0, targetCameraY = 0;
+        let shakeAmount = 0;
+
+        let stairs = [];
+        let player = { index: 0, dir: 1, x: 0, y: 0, vx: 0, vy: 0, isFalling: false, jumps: 0, spinAngle: 0 };
+        let particles = [];
+
+        // 퀴즈 관련 데이터
+        let quizStageData = [];
+        let currentQuizStage = 0; 
+        let currentQuizSlots = [null, null, null, null, null];
+        let hintUsed = false;
+        let foundAnswers = [];
+        let lastTriggeredCheckpointIndex = -1; 
+        let targetCheckpoints = []; 
+        
+        // 횡스크롤 보스 모드 관련 데이터
+        let isBossMode = false;
+        let bossBlocks = [];
+        let bossPlatforms = []; 
+        let horizontalOctopuses = []; 
+        let warningZones = []; 
+        let bossAttackCooldown = 60; 
+        const BOSS_DISTANCE = 300; 
+
+        // 보스 대화 데이터
+        let dialogueStep = 0;
+        const bossDialogues = [
+            "큭.. 문어 대왕은 계속 나올거야...",
+            "우리의 늘어나는 규칙을 수식으로 만들지 못한다면 말이지..",
+            "자, 증명해봐! 문어대왕, 문어의 눈, 문어의 다리는 어떤 관계지?!"
+        ];
+
+        // 전리품 데이터
+        let rewardsArray = [];
+
+        window.addEventListener('resize', () => {
+            cw = window.innerWidth; ch = window.innerHeight;
+            canvas.width = cw; canvas.height = ch;
+        });
+        window.dispatchEvent(new Event('resize'));
+
+        function generateStagePatterns() {
+            let n1 = Math.floor(Math.random() * 3) + 2; 
+            let n2 = Math.floor(Math.random() * 3) + 2;
+            let n3 = Math.floor(Math.random() * 3) + 2;
+            let n4 = Math.floor(Math.random() * 3) + 2;
+            return [
+                { stage: 1, targetBlock: '🟥', sourceBlock: '🟦', targetBg: null, sourceBg: null, n: n1, colors: { tTop: '#f87171', tFront: '#ef4444', tSide: '#b91c1c', sTop: '#60a5fa', sFront: '#3b82f6', sSide: '#1d4ed8' } },
+                { stage: 2, targetBlock: '🟩', sourceBlock: '🟨', targetBg: '🦇', sourceBg: '🦅', n: n2, colors: { tTop: '#a3e635', tFront: '#84cc16', tSide: '#4d7c0f', sTop: '#fde047', sFront: '#eab308', sSide: '#ca8a04' } },
+                { stage: 3, targetBlock: '🟪', sourceBlock: '🟧', targetBg: '🚁', sourceBg: '✈️', n: n3, colors: { tTop: '#c084fc', tFront: '#a855f7', tSide: '#7e22ce', sTop: '#fdba74', sFront: '#f97316', sSide: '#c2410c' } },
+                { stage: 4, targetBlock: '⬜', sourceBlock: '⬛', targetBg: '👽', sourceBg: '🛸', n: n4, colors: { tTop: '#f1f5f9', tFront: '#cbd5e1', tSide: '#94a3b8', sTop: '#475569', sFront: '#334155', sSide: '#1e293b' } }
+            ];
+        }
+
+        function initGame() {
+            score = 0; energy = 100; combo = 0; stairs = []; particles = []; horizontalOctopuses = []; warningZones = []; bossPlatforms = [];
+            currentQuizStage = 0; quizStageData = generateStagePatterns();
+            isBossMode = false;
+            lastTriggeredCheckpointIndex = -1; 
+            targetCheckpoints = [];
+            
+            document.body.classList.remove('level3-touch');
+            document.getElementById('touchLeft').style.display = '';
+            document.getElementById('touchRight').style.display = '';
+            document.getElementById('touchJump').style.width = '';
+            document.getElementById('touchJump').style.left = '';
+            document.getElementById('touchJump').style.display = '';
+            document.getElementById('touchJump').innerHTML = '점프<br>(JUMP)';
+            document.getElementById('patternHintPanel').style.display = 'none'; 
+
+            document.getElementById('gameOverTitle').textContent = 'GAME OVER';
+            document.getElementById('currencyDisplay').classList.remove('hidden');
+
+            let currentX = 0, currentY = 0, currentDir = 1;
+            let gapCooldown = 0;
+            let globalIdx = 0;
+
+            for (let stageIdx = 0; stageIdx < 4; stageIdx++) {
+                let sd = quizStageData[stageIdx];
+                let patternLen = sd.n + 1;
+                let targetPatternCount = Math.max(Math.round(50 / patternLen), 1) * patternLen;
+                
+                let patternCount = 0;
+
+                // 스테이지 시작 처리 (체크포인트 배치)
+                if (stageIdx > 0) {
+                    currentDir = stairs[globalIdx - 1].dir; 
+                    currentX += currentDir * stepWidth;
+                    currentY -= stepHeight;
+                    stairs.push({ x: currentX, y: currentY, dir: currentDir, type: 'checkpoint', isTargetColor: false, colors: sd.colors, stageIdx: stageIdx });
+                    globalIdx++;
+                } else {
+                    stairs.push({ x: currentX, y: currentY, dir: currentDir, type: 'normal', isTargetColor: true, colors: sd.colors, stageIdx: stageIdx });
+                    patternCount++;
+                    globalIdx++;
+                }
+
+                while (patternCount < targetPatternCount) {
+                    let type = 'normal';
+                    let forceStraight = false;
+
+                    if (stageIdx >= 2 && gapCooldown <= 0 && patternCount > 3 && patternCount < targetPatternCount - 3) {
+                        if (Math.random() > 0.85) {
+                            type = 'gap';
+                            gapCooldown = 3; 
+                        }
+                    }
+
+                    if (gapCooldown > 0) {
+                        forceStraight = true; gapCooldown--;
+                    }
+
+                    if (forceStraight) {
+                        currentDir = stairs[globalIdx - 1].dir;
+                    } else {
+                        currentDir = Math.random() > 0.5 ? currentDir * -1 : currentDir;
+                    }
+
+                    currentX += currentDir * stepWidth;
+                    currentY -= stepHeight;
+
+                    let isTargetColor = false;
+                    if (type !== 'gap') {
+                        isTargetColor = (patternCount % patternLen) < sd.n;
+                        patternCount++;
+                    }
+
+                    stairs.push({ x: currentX, y: currentY, dir: currentDir, type: type, isTargetColor: isTargetColor, colors: sd.colors, stageIdx: stageIdx });
+                    globalIdx++;
+                }
+                targetCheckpoints.push(globalIdx); 
+            }
+
+            currentX += currentDir * stepWidth;
+            currentY -= stepHeight;
+            stairs.push({ x: currentX, y: currentY, dir: currentDir, type: 'checkpoint', isTargetColor: false, colors: quizStageData[3].colors, stageIdx: 3 });
+            targetCheckpoints.push(globalIdx); 
+
+            player = { index: 0, dir: 1, x: stairs[0].x, y: stairs[0].y - 25, vx: 0, vy: 0, isFalling: false, jumps: 0, spinAngle: 0 };
+            targetCameraX = cw / 2 - player.x; targetCameraY = ch * 0.7 - player.y;
+            cameraX = targetCameraX; cameraY = targetCameraY;
+
+            updateUI();
+            document.getElementById('hudBottom').classList.remove('opacity-0');
+        }
+
+        function fullReset() {
+            document.getElementById('rewardScreen').classList.add('hidden');
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            initGame();
+            gameState = 'PLAYING';
+        }
+
+        // ================= 일반 오르기 모드 컨트롤 =================
+        function handleMove(direction) {
+            if (gameState !== 'PLAYING' || isBossMode) return;
+            
+            if (stairs[player.index].type === 'checkpoint' && player.index > lastTriggeredCheckpointIndex) return;
+
+            let nextStair = stairs[player.index + 1];
+
+            if (nextStair.type === 'gap') {
+                player.dir = direction; fallPlayer(); endGame("함정에 빠졌습니다! 점프(SPACE)가 필요합니다."); return;
+            }
+
+            if (direction === nextStair.dir) {
+                player.dir = direction; player.index++; score++; addCombo();
+            } else {
+                player.dir = direction; fallPlayer(); endGame("잘못된 방향으로 디뎠습니다!");
+            }
+        }
+
+        function handleJump() {
+            if (gameState !== 'PLAYING' || isBossMode) return;
+            if (stairs[player.index].stageIdx < 2) return; 
+
+            if (stairs[player.index].type === 'checkpoint' && player.index > lastTriggeredCheckpointIndex) return;
+
+            let nextStair = stairs[player.index + 1];
+            if (nextStair.type !== 'gap') return; 
+
+            let targetIndex = player.index + 2;
+            let targetStair = stairs[targetIndex];
+
+            if (targetStair.type === 'gap') { fallPlayer(); endGame("점프 타이밍이 어긋나 함정에 빠졌습니다!"); return; }
+
+            if (stairs[player.index + 1].type === 'checkpoint') {
+                targetIndex = player.index + 1; 
+                score += 1;
+            } else if (targetStair.type === 'checkpoint') {
+                targetIndex = player.index + 2; 
+                score += 2;
+            } else {
+                score += 2; 
+            }
+
+            player.dir = stairs[targetIndex].dir; player.index = targetIndex;
+            addCombo(2); createParticles(player.x, player.y, '#3b82f6'); shakeAmount = 8;
+        }
+
+        // ================= 횡스크롤 보스 모드 전환 및 컨트롤 =================
+        function startBossMode() {
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('startBtn').classList.add('hidden');
+            document.getElementById('bossPromptScreen').classList.add('hidden');
+            document.getElementById('patternHintPanel').style.display = 'none'; 
+            
+            isBossMode = true;
+            gameState = 'PLAYING';
+            shakeAmount = 20;
+            bossAttackCooldown = 60; 
+            
+            document.getElementById('touchLeft').style.display = 'none';
+            document.getElementById('touchRight').style.display = 'none';
+            document.getElementById('touchJump').style.width = '100%';
+            document.getElementById('touchJump').style.left = '0';
+            document.getElementById('touchJump').style.display = 'flex';
+            document.getElementById('touchJump').innerHTML = '더블 점프<br>(JUMP / SPACE)';
+
+            bossBlocks = [];
+            bossPlatforms = []; 
+            horizontalOctopuses = [];
+            warningZones = [];
+            document.getElementById('hudBottom').classList.add('opacity-0');
+
+            let currentBossY = ch - 150; 
+            let lastPlatformX = [0, 0, 0]; 
+
+            for (let i = 0; i <= BOSS_DISTANCE; i++) {
+                bossBlocks.push({ x: i * stepWidth, y: currentBossY, isGap: false });
+
+                let currX = i * stepWidth;
+                if (i > 15 && i < BOSS_DISTANCE - 10) {
+                    if (Math.random() < 0.25 && currX > lastPlatformX[0] + stepWidth * 2) {
+                        let pLen = Math.floor(Math.random() * 4) + 3; 
+                        bossPlatforms.push({ x: currX, y: currentBossY - 140, width: pLen * stepWidth });
+                        lastPlatformX[0] = currX + pLen * stepWidth;
+                    }
+                    if (Math.random() < 0.20 && currX > lastPlatformX[1] + stepWidth * 2) {
+                        let pLen = Math.floor(Math.random() * 4) + 3;
+                        bossPlatforms.push({ x: currX, y: currentBossY - 280, width: pLen * stepWidth });
+                        lastPlatformX[1] = currX + pLen * stepWidth;
+                    }
+                    if (Math.random() < 0.15 && currX > lastPlatformX[2] + stepWidth * 2) {
+                        let pLen = Math.floor(Math.random() * 4) + 3;
+                        bossPlatforms.push({ x: currX, y: currentBossY - 420, width: pLen * stepWidth });
+                        lastPlatformX[2] = currX + pLen * stepWidth;
+                    }
+                }
+            }
+
+            player = { x: 0, y: bossBlocks[0].y - 25, vx: 8, vy: 0, dir: 1, isFalling: false, jumps: 0, spinAngle: 0 };
+            cameraX = 0; cameraY = 0;
+            
+            updateUI();
+        }
+
+        function retryBoss() {
+            if (score >= 50) {
+                score -= 50;
+                document.getElementById('gameOverScreen').classList.add('hidden');
+                startBossMode(); 
+            }
+        }
+
+        function declineBoss() {
+            document.getElementById('bossPromptScreen').classList.add('hidden');
+            endGame("패턴 마스터! 게임을 완벽하게 클리어했습니다! 🏆");
+        }
+
+        function handleBossJump() {
+            if (gameState !== 'PLAYING' || !isBossMode) return;
+            if (player.jumps < 2) {
+                player.vy = -14; 
+                player.jumps++;
+                player.isFalling = true;
+                player.spinAngle = 0;
+                createParticles(player.x, player.y, '#ef4444');
+            }
+        }
+
+        // ================= 보스전 대화, 퀴즈 및 보상 로직 =================
+        function startBossDialogue() {
+            gameState = 'BOSS_DIALOGUE';
+            document.getElementById('dialogueScreen').classList.remove('hidden');
+            dialogueStep = 0;
+            document.getElementById('dialogueText').textContent = bossDialogues[dialogueStep];
+        }
+
+        function advanceDialogue() {
+            if (gameState !== 'BOSS_DIALOGUE') return;
+            dialogueStep++;
+            if (dialogueStep < bossDialogues.length) {
+                document.getElementById('dialogueText').textContent = bossDialogues[dialogueStep];
+            } else {
+                document.getElementById('dialogueScreen').classList.add('hidden');
+                triggerFinalQuiz();
+            }
+        }
+
+        function triggerFinalQuiz() {
+            gameState = 'FINAL_QUIZ';
+            document.getElementById('quizScreen').classList.remove('hidden');
+            document.getElementById('quizTitle').textContent = `최종 퀴즈!`;
+            document.getElementById('quizDesc').innerHTML = `문어 대왕의 규칙을 수식으로 완성하세요!<br><span class="text-sm text-yellow-300">🐙(대왕: 1), 👁️(눈: 2), 🦵(다리: 8)</span>`;
+            
+            let optionsContainer = document.getElementById('quizOptions');
+            optionsContainer.innerHTML = '';
+            
+            let options = ['🐙', '👁️', '🦵', '=', '×', '÷', '+', '-', '2', '4', '8'];
+
+            options.forEach(opt => {
+                let btn = document.createElement('button');
+                btn.className = 'w-12 h-12 md:w-16 md:h-16 bg-gray-700 hover:bg-gray-600 text-2xl md:text-3xl rounded-xl font-bold shadow-md text-white border-b-4 border-gray-800 active:border-b-0 active:translate-y-1 transition-all';
+                btn.textContent = opt; btn.onclick = () => fillSlot(opt);
+                optionsContainer.appendChild(btn);
+            });
+
+            currentQuizSlots = [null, null, null, null, null]; renderSlots();
+            document.getElementById('quizFeedback').textContent = '버튼을 눌러 빈 칸을 채우세요.';
+            document.getElementById('quizFeedback').className = 'text-lg md:text-xl font-bold h-8 text-center mb-6 text-white';
+            document.getElementById('quizSubmitBtn').classList.add('hidden');
+            document.getElementById('quizMoreBtn').classList.add('hidden'); 
+            document.getElementById('quizNextBtn').classList.add('hidden');
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function showRewardScreen() {
+            gameState = 'REWARD';
+            document.getElementById('rewardScreen').classList.remove('hidden');
+            document.getElementById('rewardResult').textContent = '';
+            document.getElementById('fullResetBtn').classList.add('hidden');
+            
+            rewardsArray = [
+                { type: 'silver', amount: 1, text: '🪙 은화 1개' },
+                { type: 'silver', amount: 1, text: '🪙 은화 1개' },
+                { type: 'silver', amount: 1, text: '🪙 은화 1개' },
+                { type: 'silver', amount: 2, text: '💰 은화 2개!' },
+                { type: 'exp', amount: 2, text: '✨ EXP 2개' },
+                { type: 'exp', amount: 2, text: '✨ EXP 2개' },
+                { type: 'exp', amount: 2, text: '✨ EXP 2개' },
+                { type: 'exp', amount: 2, text: '✨ EXP 2개' }
+            ];
+            rewardsArray = shuffleArray(rewardsArray);
+
+            let container = document.getElementById('legContainer');
+            container.innerHTML = '';
+            for (let i = 0; i < 8; i++) {
+                let btn = document.createElement('button');
+                btn.className = 'w-20 h-24 bg-red-700 hover:bg-red-600 border-b-4 border-red-900 rounded-xl text-4xl shadow-lg transform transition active:scale-95 flex items-center justify-center';
+                btn.innerHTML = '🦵';
+                btn.onclick = () => pickReward(i, btn);
+                container.appendChild(btn);
+            }
+        }
+
+        function pickReward(index, btnElement) {
+            if (gameState !== 'REWARD') return;
+            gameState = 'REWARD_DONE';
+
+            let reward = rewardsArray[index];
+            if (reward.type === 'silver') silverCoins += reward.amount;
+            else if (reward.type === 'exp') expAmount += reward.amount;
+
+            document.getElementById('silverCount').textContent = silverCoins;
+            document.getElementById('expCount').textContent = expAmount;
+            document.getElementById('rewardResult').textContent = `당첨! ${reward.text} 획득!`;
+
+            btnElement.className = 'w-20 h-24 bg-green-500 rounded-xl text-2xl font-bold text-white shadow-lg flex items-center justify-center animate-bounce';
+            btnElement.innerHTML = reward.text.split(' ')[0]; 
+
+            let btns = document.getElementById('legContainer').children;
+            for (let i = 0; i < 8; i++) {
+                if (i !== index) {
+                    btns[i].onclick = null;
+                    btns[i].className = 'w-20 h-24 bg-gray-700 rounded-xl text-4xl shadow-lg opacity-50 flex items-center justify-center';
+                }
+            }
+
+            document.getElementById('fullResetBtn').classList.remove('hidden');
+        }
+
+        // ================= 퀴즈 판정 및 UI =================
+        function triggerQuiz(stageIdx) {
+            gameState = 'QUIZ'; currentQuizStage = stageIdx + 1;
+            let qd = quizStageData[stageIdx]; hintUsed = false; foundAnswers = [];
+            
+            document.getElementById('quizScreen').classList.remove('hidden');
+            document.getElementById('quizTitle').textContent = `스테이지 ${stageIdx + 1} 완료!`;
+            document.getElementById('quizDesc').innerHTML = `방금 지나온 길에서 관찰한 대응관계 패턴을 5칸의 식으로 완성하세요.`;
+            document.getElementById('quizOptions').innerHTML = '';
+            
+            let options = [qd.targetBlock, qd.sourceBlock];
+            if (qd.targetBg) options.push(qd.targetBg, qd.sourceBg);
+            options.push('=', '×', '÷', '+', '-', '2', '3', '4');
+
+            options.forEach(opt => {
+                let btn = document.createElement('button');
+                btn.className = 'w-12 h-12 md:w-16 md:h-16 bg-gray-700 hover:bg-gray-600 text-2xl md:text-3xl rounded-xl font-bold shadow-md text-white border-b-4 border-gray-800 active:border-b-0 active:translate-y-1 transition-all';
+                btn.textContent = opt; btn.onclick = () => fillSlot(opt);
+                document.getElementById('quizOptions').appendChild(btn);
+            });
+
+            currentQuizSlots = [null, null, null, null, null]; renderSlots();
+            document.getElementById('quizFeedback').textContent = '버튼을 눌러 빈 칸을 채우세요.';
+            document.getElementById('quizFeedback').className = 'text-lg md:text-xl font-bold h-8 text-center mb-6 text-white';
+            document.getElementById('quizSubmitBtn').classList.add('hidden');
+            document.getElementById('quizMoreBtn').classList.add('hidden'); 
+            document.getElementById('quizNextBtn').classList.add('hidden');
+        }
+
+        function fillSlot(val) {
+            let idx = currentQuizSlots.indexOf(null);
+            if (idx !== -1) { currentQuizSlots[idx] = val; renderSlots(); }
+        }
+
+        function clearSlot(idx) {
+            if (document.getElementById('quizSubmitBtn').classList.contains('hidden') && document.getElementById('quizNextBtn').classList.contains('hidden') === false) return;
+            currentQuizSlots[idx] = null; renderSlots();
+            document.getElementById('quizSubmitBtn').classList.add('hidden');
+        }
+
+        function renderSlots() {
+            let slots = document.getElementById('quizSlots').children;
+            let fullCount = 0;
+            for(let i=0; i<5; i++) {
+                slots[i].textContent = currentQuizSlots[i] || '';
+                slots[i].classList.toggle('bg-gray-800', !currentQuizSlots[i]);
+                slots[i].classList.toggle('bg-blue-800', !!currentQuizSlots[i]);
+                if(currentQuizSlots[i]) fullCount++;
+            }
+            if(fullCount === 5 && document.getElementById('quizNextBtn').classList.contains('hidden')) document.getElementById('quizSubmitBtn').classList.remove('hidden');
+            else document.getElementById('quizSubmitBtn').classList.add('hidden');
+        }
+
+        function checkQuiz() {
+            if (gameState === 'FINAL_QUIZ') {
+                let ans = currentQuizSlots.join('');
+                let usedUniqueIcons = new Set();
+                for (let slot of currentQuizSlots) {
+                    if (['🐙', '👁️', '🦵'].includes(slot)) usedUniqueIcons.add(slot);
+                }
+
+                if (usedUniqueIcons.size < 2) {
+                    document.getElementById('quizFeedback').textContent = `오답입니다 😢 두 가지 이상의 문어 요소를 연결해주세요!`;
+                    document.getElementById('quizFeedback').className = 'text-lg font-bold h-8 text-center mb-6 text-red-400';
+                    return;
+                }
+
+                let eqIdx = currentQuizSlots.indexOf('=');
+                let isCorrect = false;
+
+                if (eqIdx > 0 && eqIdx < currentQuizSlots.length - 1) {
+                    let lhsSlots = currentQuizSlots.slice(0, eqIdx);
+                    let rhsSlots = currentQuizSlots.slice(eqIdx + 1);
+
+                    let parseExprFinal = (slotsArray) => {
+                        let exprStr = slotsArray.map(slot => {
+                            if (slot === '🐙') return 1;
+                            if (slot === '👁️') return 2;
+                            if (slot === '🦵') return 8;
+                            if (slot === '×') return '*';
+                            if (slot === '÷') return '/';
+                            return slot;
+                        }).join('');
+                        try {
+                            let val = new Function('return ' + exprStr)();
+                            if (typeof val !== 'number' || isNaN(val)) return null;
+                            return val;
+                        } catch(e) { return null; }
+                    };
+
+                    let lhsVal = parseExprFinal(lhsSlots);
+                    let rhsVal = parseExprFinal(rhsSlots);
+                    if (lhsVal !== null && rhsVal !== null && Math.abs(lhsVal - rhsVal) < 0.0001) isCorrect = true;
+                }
+
+                if (isCorrect) {
+                    score += 5000; 
+                    document.getElementById('quizScreen').classList.add('hidden');
+                    showRewardScreen();
+                } else {
+                    document.getElementById('quizFeedback').textContent = `오답입니다 😢 힌트: 문어 대왕(🐙) 1마리는 눈(👁️)이 2개, 다리(🦵)가 8개랍니다!`;
+                    document.getElementById('quizFeedback').className = 'text-lg font-bold h-8 text-center mb-6 text-red-400';
+                }
+                return;
+            }
+
+            // 일반 스테이지 퀴즈 검증 로직
+            let qd = quizStageData[currentQuizStage - 1];
+            let ans = currentQuizSlots.join('');
+            
+            let patternIcons = [qd.targetBlock, qd.sourceBlock];
+            if (qd.targetBg) patternIcons.push(qd.targetBg, qd.sourceBg);
+
+            let usedUniqueIcons = new Set();
+            for (let slot of currentQuizSlots) {
+                if (patternIcons.includes(slot)) usedUniqueIcons.add(slot);
+            }
+
+            if (usedUniqueIcons.size < 2) {
+                document.getElementById('quizFeedback').textContent = `오답입니다 😢 서로 다른 두 가지 이상의 패턴 아이콘을 연결해 식을 만들어주세요!`;
+                document.getElementById('quizFeedback').className = 'text-lg font-bold h-8 text-center mb-6 text-red-400';
+                return;
+            }
+
+            let eqIdx = currentQuizSlots.indexOf('=');
+            let isCorrect = false;
+
+            if (eqIdx > 0 && eqIdx < currentQuizSlots.length - 1) {
+                let lhsSlots = currentQuizSlots.slice(0, eqIdx);
+                let rhsSlots = currentQuizSlots.slice(eqIdx + 1);
+
+                let parseExpr = (slotsArray) => {
+                    let exprStr = slotsArray.map(slot => {
+                        if (slot === qd.targetBlock || slot === qd.targetBg) return qd.n;
+                        if (slot === qd.sourceBlock || slot === qd.sourceBg) return 1;
+                        if (slot === '×') return '*';
+                        if (slot === '÷') return '/';
+                        return slot;
+                    }).join('');
+                    try {
+                        let val = new Function('return ' + exprStr)();
+                        if (typeof val !== 'number' || isNaN(val)) return null;
+                        return val;
+                    } catch(e) { return null; }
+                };
+
+                let lhsVal = parseExpr(lhsSlots);
+                let rhsVal = parseExpr(rhsSlots);
+                if (lhsVal !== null && rhsVal !== null && Math.abs(lhsVal - rhsVal) < 0.0001) isCorrect = true;
+            }
+
+            if (isCorrect) {
+                if (foundAnswers.includes(ans)) {
+                     document.getElementById('quizFeedback').textContent = `이미 찾은 식입니다! 다른 모양의 식을 만들어보세요.`;
+                     document.getElementById('quizFeedback').className = 'text-lg font-bold h-8 text-center mb-6 text-yellow-400';
+                     return;
+                }
+                foundAnswers.push(ans);
+                
+                let bonus = hintUsed ? 10 : 20; score += bonus;
+                document.getElementById('quizFeedback').textContent = `정답입니다! 👏 보너스 ${bonus}점 획득!`;
+                document.getElementById('quizFeedback').className = 'text-xl font-bold h-8 text-center mb-6 text-green-400';
+                document.getElementById('quizSubmitBtn').classList.add('hidden');
+                
+                if (foundAnswers.length < 3) {
+                    document.getElementById('quizMoreBtn').classList.remove('hidden');
+                } else {
+                    document.getElementById('quizMoreBtn').classList.add('hidden');
+                    document.getElementById('quizFeedback').textContent += ` (다양한 식을 정말 잘 찾았어요!)`;
+                }
+                document.getElementById('quizNextBtn').classList.remove('hidden');
+                updateUI();
+            } else {
+                hintUsed = true;
+                let hintTarget = qd.targetBlock; let hintSource = qd.sourceBlock;
+                if (qd.targetBg && currentQuizSlots.includes(qd.targetBg)) { hintTarget = qd.targetBg; hintSource = qd.sourceBg; }
+
+                document.getElementById('quizFeedback').textContent = `오답입니다 😢 힌트: 왼쪽의 관찰 일지를 확인해보세요! ${hintSource} 1개당 ${hintTarget} ${qd.n}개예요.`;
+                document.getElementById('quizFeedback').className = 'text-lg font-bold h-8 text-center mb-6 text-red-400';
+            }
+        }
+
+        function makeMoreEquation() {
+            currentQuizSlots = [null, null, null, null, null]; renderSlots();
+            document.getElementById('quizMoreBtn').classList.add('hidden'); document.getElementById('quizNextBtn').classList.add('hidden');
+            document.getElementById('quizFeedback').textContent = '순서를 바꾸거나 기호를 바꿔 다른 형태의 정답 식을 완성해보세요!';
+            document.getElementById('quizFeedback').className = 'text-lg font-bold h-8 text-center mb-6 text-white';
+        }
+
+        function closeQuiz() {
+            document.getElementById('quizScreen').classList.add('hidden');
+            if (currentQuizStage === 4) {
+                gameState = 'BOSS_PROMPT';
+                document.getElementById('bossPromptScreen').classList.remove('hidden');
+            } else {
+                gameState = 'PLAYING'; energy = maxEnergy; 
+            }
+        }
+
+        // ================= 메인 루프 (Update & Draw) =================
+        function update() {
+            if (gameState === 'PLAYING') {
+                if (!isBossMode) {
+                    energy -= (0.15 + (score * 0.001));
+                    if (energy <= 0) { energy = 0; fallPlayer(); endGame("시간(에너지) 초과!"); }
+                }
+                if (comboTimer > 0) { comboTimer--; if (comboTimer === 0) { combo = 0; document.getElementById('comboDisplay').classList.add('opacity-0'); } }
+            }
+
+            if (gameState !== 'START' && gameState !== 'BOSS_DIALOGUE' && gameState !== 'FINAL_QUIZ' && gameState !== 'REWARD' && gameState !== 'REWARD_DONE') {
+                if (isBossMode) {
+                    if (gameState === 'PLAYING') {
+                        let nextX = player.x + player.vx;
+                        let blockX = Math.round(nextX / stepWidth);
+                        let b = bossBlocks[blockX];
+
+                        if (b && !b.isGap) {
+                            if (player.y + 10 > b.y) {
+                                player.vx = 0; 
+                            } else {
+                                player.vx = 8;
+                            }
+                        } else {
+                            player.vx = 8;
+                        }
+                        player.x += player.vx;
+
+                        if (bossAttackCooldown > 0) {
+                            bossAttackCooldown--;
+                        } else {
+                            let currPhaseBlock = Math.round(player.x / stepWidth);
+                            
+                            // 공격 타겟 높이 생성 (맨 위와 맨 바닥 확률 대폭 증가)
+                            let getTargetY = () => {
+                                let r = Math.random();
+                                if (r < 0.4) return (ch - 150) - 20 - Math.random() * 40; // 40% 확률로 맨 바닥(1층) 노림
+                                if (r < 0.8) return (ch - 150) - 380 - Math.random() * 60; // 40% 확률로 맨 위(3층 공중) 노림
+                                return (ch - 150) - 150 - Math.random() * 200; // 20% 확률로 중간층 노림
+                            };
+
+                            let targetY1 = getTargetY(); 
+                            let targetY2 = getTargetY();
+                            let targetY3 = getTargetY();
+
+                            if (currPhaseBlock < 50) {
+                                targetY1 = (ch - 150) - 20 - Math.random() * 50; // 1단계: 바닥 고정
+                                warningZones.push({ y: targetY1, timer: 60, scale: 1 });
+                                bossAttackCooldown = 100;
+                            } else if (currPhaseBlock < 100) {
+                                targetY1 = (ch - 150) - 20 - Math.random() * 50; // 2단계: 하나는 바닥 고정, 하나는 랜덤
+                                warningZones.push({ y: targetY1, timer: 60, scale: 1 });
+                                warningZones.push({ y: targetY2, timer: 60, scale: 1 });
+                                bossAttackCooldown = 120;
+                            } else if (currPhaseBlock < 160) {
+                                warningZones.push({ y: targetY1, timer: 60, scale: 1 });
+                                warningZones.push({ y: targetY2, timer: 90, scale: 1 });
+                                warningZones.push({ y: targetY3, timer: 120, scale: 1 });
+                                bossAttackCooldown = 150;
+                            } else if (currPhaseBlock < 210) {
+                                warningZones.push({ y: targetY1, timer: 60, scale: 2.5 });
+                                bossAttackCooldown = 130;
+                            } else if (currPhaseBlock < 250) {
+                                warningZones.push({ y: ch - 150 - 50, timer: 60, scale: 1.2 });
+                                warningZones.push({ y: ch - 150 - 150, timer: 80, scale: 1.2 });
+                                warningZones.push({ y: ch - 150 - 250, timer: 100, scale: 1.2 });
+                                warningZones.push({ y: ch - 150 - 350, timer: 120, scale: 1.2 });
+                                bossAttackCooldown = 160;
+                            } else if (currPhaseBlock < 290) {
+                                // 대쉬 패턴 역시 극단적으로 맨 위 or 맨 아래만 노림
+                                let dashY = Math.random() > 0.5 ? (ch - 150) - 40 - Math.random() * 20 : (ch - 150) - 380 - Math.random() * 40;
+                                warningZones.push({ y: dashY, timer: 90, scale: 5, isBossDash: true });
+                                bossAttackCooldown = 180;
+                            } else {
+                                bossAttackCooldown = 9999;
+                            }
+                        }
+
+                        for (let i = warningZones.length - 1; i >= 0; i--) {
+                            let w = warningZones[i];
+                            w.timer--;
+                            if (w.timer <= 0) {
+                                horizontalOctopuses.push({
+                                    x: player.x + cw + 150, 
+                                    y: w.y,
+                                    vx: w.isBossDash ? -22 : -8 - Math.random() * 3, 
+                                    rot: 0,
+                                    vrot: w.isBossDash ? 0 : -0.1,
+                                    scale: w.scale,
+                                    isBossDash: w.isBossDash
+                                });
+                                warningZones.splice(i, 1);
+                            }
+                        }
+
+                        for (let i = horizontalOctopuses.length - 1; i >= 0; i--) {
+                            let oct = horizontalOctopuses[i];
+                            oct.x += oct.vx; oct.rot += oct.vrot;
+                            
+                            if (Math.hypot(player.x - oct.x, player.y - oct.y) < (30 * oct.scale)) { 
+                                fallPlayer(); endGame("화난 대왕 문어의 공격에 맞았습니다! (보스전 실패)", true); return; 
+                            }
+                            if (oct.x < player.x - cw) horizontalOctopuses.splice(i, 1);
+                        }
+
+                        let currBlockXForWin = Math.round(player.x / stepWidth);
+                        if (currBlockXForWin >= BOSS_DISTANCE - 2) { 
+                            player.vx = 0;
+                            player.isFalling = false;
+                            startBossDialogue(); 
+                            return; 
+                        }
+                    }
+                    
+                    player.vy += 0.8;
+                    player.y += player.vy;
+                    if (gameState === 'GAMEOVER') player.x += player.vx;
+
+                    if (player.isFalling) player.spinAngle += (player.jumps === 2) ? 0.35 : 0.15;
+
+                    let onPlatform = false;
+                    for (let p of bossPlatforms) {
+                        if (player.x + 15 > p.x && player.x - 15 < p.x + p.width) {
+                            if (player.vy >= 0 && player.y + 25 >= p.y && player.y + 25 - player.vy <= p.y + Math.max(40, player.vy + 10)) {
+                                player.y = p.y - 25;
+                                if (gameState === 'PLAYING') {
+                                    player.vy = 0;
+                                    player.jumps = 0;
+                                    player.isFalling = false;
+                                    player.spinAngle = 0; 
+                                }
+                                onPlatform = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!onPlatform) {
+                        let currBlockX = Math.round(player.x / stepWidth);
+                        let currB = bossBlocks[currBlockX];
+                        if (currB && !currB.isGap) {
+                            if (player.vy >= 0 && player.y + 25 >= currB.y && player.y + 25 - player.vy <= currB.y + Math.max(40, player.vy + 10)) {
+                                player.y = currB.y - 25;
+                                if (gameState === 'PLAYING') {
+                                    player.vy = 0;
+                                    player.jumps = 0;
+                                    player.isFalling = false;
+                                    player.spinAngle = 0; 
+                                }
+                            } else if (player.y + 25 > currB.y) {
+                                player.isFalling = true;
+                            }
+                        } else {
+                            player.isFalling = true;
+                        }
+                    }
+
+                    targetCameraX = cw / 4 - player.x;
+                    cameraX += (targetCameraX - cameraX) * 0.2;
+                    targetCameraY = (ch - 250) - player.y; 
+                    cameraY += (targetCameraY - cameraY) * 0.1;
+
+                } else {
+                    if (gameState === 'PLAYING') {
+                        if (currentQuizStage < 4 && stairs[player.index] && stairs[player.index].type === 'checkpoint' && player.index > lastTriggeredCheckpointIndex) {
+                            let dx = Math.abs(player.x - stairs[player.index].x);
+                            let dy = Math.abs(player.y - (stairs[player.index].y - 25));
+                            if (dx < 10 && dy < 10 && !player.isFalling) {
+                                lastTriggeredCheckpointIndex = player.index;
+                                triggerQuiz(currentQuizStage);
+                            }
+                        }
+                    }
+
+                    if (stairs.length > 0) {
+                        if (!player.isFalling && gameState === 'PLAYING') {
+                            let targetPX = stairs[player.index].x; 
+                            let targetPY = stairs[player.index].y - 25;
+                            player.x += (targetPX - player.x) * 0.4; 
+                            player.y += (targetPY - player.y) * 0.4;
+                            targetCameraX = cw / 2 - player.x; 
+                            targetCameraY = ch * 0.7 - player.y;
+                        } else if (player.isFalling) {
+                            player.x += player.vx; 
+                            player.y += player.vy; 
+                            player.vy += 0.8;
+                        }
+                    }
+
+                    cameraX += (targetCameraX - cameraX) * 0.2; 
+                    cameraY += (targetCameraY - cameraY) * 0.2;
+                }
+                
+                if (gameState === 'PLAYING') updateUI();
+            }
+
+            if (shakeAmount > 0) shakeAmount -= 0.5;
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function draw() {
+            let stageIndex = stairs[player.index] ? stairs[player.index].stageIdx : 0;
+            let bgTop = '#87CEEB', bgBottom = '#E0F6FF';
+            if (isBossMode) { bgTop = '#450a0a'; bgBottom = '#000000'; }
+            else if (stageIndex === 1) { bgTop = '#4682B4'; bgBottom = '#FFB6C1'; } 
+            else if (stageIndex === 2) { bgTop = '#0B0B2A'; bgBottom = '#1A1A40'; } 
+            else if (stageIndex >= 3) { bgTop = '#2A0800'; bgBottom = '#1A0015'; } 
+
+            let grad = ctx.createLinearGradient(0, 0, 0, ch);
+            grad.addColorStop(0, bgTop); grad.addColorStop(1, bgBottom);
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, cw, ch);
+
+            ctx.save();
+            if (shakeAmount > 0) ctx.translate((Math.random() - 0.5) * shakeAmount, (Math.random() - 0.5) * shakeAmount);
+
+            if (isBossMode) {
+                ctx.save();
+                ctx.font = '500px ' + EMOJI_FONT; 
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                let bossHover = Math.sin(Date.now() / 200) * 20;
+                ctx.fillText('🐙', cw + 80, ch / 2 + bossHover); 
+                ctx.font = '150px ' + EMOJI_FONT;
+                ctx.fillText('💢', cw - 80, ch / 2 - 100 + bossHover);
+                ctx.restore();
+
+                for (let w of warningZones) {
+                    ctx.fillStyle = `rgba(239, 68, 68, ${0.1 + Math.sin(Date.now()/50) * 0.2})`;
+                    ctx.fillRect(0, w.y + cameraY - (30 * w.scale), cw, 60 * w.scale); 
+                    ctx.fillStyle = `rgba(255, 0, 0, ${0.5 + Math.sin(Date.now()/20) * 0.5})`;
+                    ctx.fillRect(0, w.y + cameraY - (2 * w.scale), cw, 4 * w.scale); 
+                }
+
+                let startBlock = Math.max(0, Math.floor((-cameraX - stepWidth) / stepWidth));
+                let endBlock = Math.min(bossBlocks.length - 1, Math.floor((cw - cameraX + stepWidth) / stepWidth));
+                for (let i = startBlock; i <= endBlock; i++) {
+                    let b = bossBlocks[i];
+                    let sx = b.x + cameraX;
+                    let sy = b.y + cameraY;
+                    
+                    if (b.isGap) {
+                        ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+                        ctx.fillRect(sx - stepWidth/2, ch - 50, stepWidth, 50);
+                        continue;
+                    }
+                    
+                    ctx.fillStyle = '#b91c1c'; 
+                    ctx.fillRect(sx - stepWidth/2, sy, stepWidth, 15);
+                    ctx.fillStyle = '#7f1d1d'; 
+                    ctx.fillRect(sx - stepWidth/2, sy + 15, stepWidth, ch);
+                }
+
+                for (let p of bossPlatforms) {
+                    let sx = p.x + cameraX;
+                    let sy = p.y + cameraY;
+                    if (sx + p.width < -100 || sx > cw + 100) continue;
+                    
+                    ctx.fillStyle = '#64748b'; 
+                    ctx.fillRect(sx, sy, p.width, 15);
+                    ctx.fillStyle = '#334155'; 
+                    ctx.fillRect(sx, sy + 15, p.width, 20);
+                }
+
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                for (let oct of horizontalOctopuses) {
+                    ctx.save();
+                    ctx.font = (60 * oct.scale) + 'px ' + EMOJI_FONT;
+                    ctx.translate(oct.x + cameraX, oct.y + cameraY);
+                    ctx.rotate(oct.rot);
+                    ctx.fillText('🐙', 0, 0);
+                    if (oct.isBossDash) {
+                        ctx.font = (30 * oct.scale) + 'px ' + EMOJI_FONT;
+                        ctx.fillText('💢', -40 * oct.scale, -30 * oct.scale);
+                    }
+                    ctx.restore();
+                }
+
+            } else {
+                let startIdx = Math.max(0, player.index - 20);
+                let endIdx = Math.min(stairs.length, player.index + 30);
+                
+                for (let i = startIdx; i < endIdx; i++) {
+                    let s = stairs[i];
+                    let sx = s.x + cameraX, sy = s.y + cameraY;
+
+                    if (sy > ch + 100 || sx < -100 || sx > cw + 100) continue;
+
+                    if (s.type === 'gap') {
+                        ctx.beginPath(); ctx.arc(sx, sy, 15, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fill();
+                        ctx.lineWidth = 2; ctx.strokeStyle = '#ef4444'; ctx.stroke();
+                        continue;
+                    }
+
+                    let topColor, frontColor, sideColor;
+                    if (s.type === 'checkpoint') {
+                        topColor = '#fde047'; frontColor = '#eab308'; sideColor = '#ca8a04'; 
+                    } else {
+                        topColor = s.isTargetColor ? s.colors.tTop : s.colors.sTop;
+                        frontColor = s.isTargetColor ? s.colors.tFront : s.colors.sFront;
+                        sideColor = s.isTargetColor ? s.colors.tSide : s.colors.sSide;
+                    }
+
+                    let w = s.type === 'checkpoint' ? stepWidth * 1.5 : stepWidth;
+
+                    ctx.beginPath();
+                    ctx.moveTo(sx - w/2, sy); ctx.lineTo(sx, sy - stepHeight/2);
+                    ctx.lineTo(sx + w/2, sy); ctx.lineTo(sx, sy + stepHeight/2);
+                    ctx.fillStyle = topColor; ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(sx - w/2, sy); ctx.lineTo(sx, sy + stepHeight/2);
+                    ctx.lineTo(sx, sy + stepHeight/2 + 20); ctx.lineTo(sx - w/2, sy + 20);
+                    ctx.fillStyle = frontColor; ctx.fill();
+
+                    ctx.beginPath();
+                    ctx.moveTo(sx + w/2, sy); ctx.lineTo(sx, sy + stepHeight/2);
+                    ctx.lineTo(sx, sy + stepHeight/2 + 20); ctx.lineTo(sx + w/2, sy + 20);
+                    ctx.fillStyle = sideColor; ctx.fill();
+                }
+            }
+
+            ctx.save();
+            ctx.translate(player.x + cameraX, player.y + cameraY);
+            if (isBossMode && player.isFalling) {
+                ctx.rotate(player.spinAngle);
+            } else if (!isBossMode && player.isFalling) {
+                ctx.rotate(player.vy * 0.1);
+            }
+            
+            let currentImg = player.dir === 1 ? imgCharRight : imgCharLeft;
+            if (currentImg.complete && currentImg.naturalWidth !== 0) {
+                ctx.drawImage(currentImg, -25, -25, 50, 50);
+            } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(-25, -25, 50, 50);
+            }
+            ctx.restore();
+
+            for (let p of particles) {
+                ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(p.x + cameraX, p.y + cameraY, 5 * p.life, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+            ctx.restore();
+        }
+
+        function addCombo(amount = 1) { combo += amount; comboTimer = 60; energy = Math.min(maxEnergy, energy + Math.max(2, 5 - (score * 0.01)) + (combo * 0.3)); createParticles(player.x, player.y, '#facc15'); updateUI(); animateScore(); }
+        function animateScore() { document.getElementById('scoreDisplay').classList.add('scale-150'); setTimeout(() => document.getElementById('scoreDisplay').classList.remove('scale-150'), 100); if (combo > 1) { document.getElementById('comboDisplay').textContent = `${combo} COMBO!`; document.getElementById('comboDisplay').classList.remove('opacity-0'); } }
+        function createParticles(x, y, color) { for (let i = 0; i < 5; i++) particles.push({ x, y, vx: (Math.random() - 0.5)*10, vy: (Math.random() - 1)*10, life: 1, color }); }
+        
+        function fallPlayer() { 
+            player.isFalling = true; 
+            player.vy = -10; 
+            if (!isBossMode) player.vx = player.dir * -5; 
+        }
+        
+        function endGame(reason, isBossFail = false) { 
+            gameState = 'GAMEOVER'; 
+            document.getElementById('deathReason').textContent = reason; 
+            document.getElementById('hudBottom').classList.add('opacity-0'); 
+            document.getElementById('finalScore').textContent = Math.floor(score); 
+            
+            if (isBossFail && score >= 50) {
+                document.getElementById('retryBossBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('retryBossBtn').classList.add('hidden');
+            }
+
+            setTimeout(() => document.getElementById('gameOverScreen').classList.remove('hidden'), 500); 
+            document.getElementById('patternHintPanel').style.display = 'none'; 
+        }
+        
+        function updateUI() { 
+            document.getElementById('scoreDisplay').textContent = Math.floor(score); 
+            let eb = document.getElementById('energyBar'); 
+            eb.style.width = `${energy}%`; eb.style.background = energy < 30 ? '#dc2626' : (energy < 60 ? '#f59e0b' : 'linear-gradient(90deg, #34d399 0%, #10b981 100%)'); 
+            
+            let stageIdx = stairs[player.index] ? stairs[player.index].stageIdx : 0; 
+            let ld = document.getElementById('levelDisplay'); 
+            let hintPanel = document.getElementById('patternHintPanel');
+            
+            if (isBossMode) {
+                ld.textContent = "BOSS STAGE: 대왕 문어의 무자비한 공격을 더블 점프로 회피하세요!";
+                hintPanel.style.display = 'none';
+            } else {
+                if (stageIdx === 0) { 
+                    ld.textContent = "LEVEL 1: 블록의 색깔 패턴"; 
+                    hintPanel.style.display = 'none';
+                } else {
+                    if (stageIdx === 1) ld.textContent = "LEVEL 2: 날아다니는 동물의 패턴"; 
+                    else if (stageIdx === 2) { ld.textContent = "LEVEL 3: 항공기의 패턴 (함정 주의!)"; document.body.classList.add('level3-touch'); }
+                    else { ld.textContent = "LEVEL 4: 우주 생명체의 패턴 (함정 주의!)"; document.body.classList.add('level3-touch'); } 
+
+                    let sd = quizStageData[stageIdx];
+                    if (sd && sd.targetBg && gameState === 'PLAYING') {
+                        hintPanel.style.display = 'block';
+                        
+                        let r1s = Array(1).fill(sd.sourceBg).join(' ');
+                        let r1t = Array(sd.n).fill(sd.targetBg).join(' ');
+                        let r2s = Array(2).fill(sd.sourceBg).join(' ');
+                        let r2t = Array(sd.n * 2).fill(sd.targetBg).join(' ');
+                        
+                        hintPanel.innerHTML = `
+                            <div class="bg-gray-900 bg-opacity-95 p-4 md:p-6 rounded-r-3xl border-r-4 border-t-4 border-b-4 border-yellow-400 shadow-2xl text-2xl md:text-3xl text-center flex flex-col gap-3">
+                                <p class="text-yellow-300 font-black mb-2 drop-shadow-lg text-3xl">🔍 관찰 일지</p>
+                                
+                                <div class="flex items-center justify-center bg-gray-800 rounded-xl p-3 shadow-inner">
+                                    <div class="flex justify-end w-24 md:w-32 tracking-widest">${r1s}</div>
+                                    <span class="text-white font-black text-2xl mx-4">=</span>
+                                    <div class="flex flex-wrap justify-start w-48 md:w-64 leading-tight tracking-widest gap-x-1">${r1t}</div>
+                                </div>
+                                
+                                <div class="flex items-center justify-center bg-gray-800 rounded-xl p-3 shadow-inner">
+                                    <div class="flex flex-wrap justify-end w-24 md:w-32 leading-tight tracking-widest gap-x-1">${r2s}</div>
+                                    <span class="text-white font-black text-2xl mx-4">=</span>
+                                    <div class="flex flex-wrap justify-start w-48 md:w-64 leading-tight tracking-widest gap-x-1">${r2t}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+            }
+        }
+
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            if (gameState === 'START' && (e.key === 'z' || e.key === 'x' || e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.code === 'Space')) { document.getElementById('startBtn').click(); return; }
+            if (gameState === 'GAMEOVER' && e.key === 'r') { document.getElementById('restartBtn').click(); return; }
+            if (gameState === 'PLAYING') {
+                if (isBossMode) {
+                    if (e.code === 'Space') { e.preventDefault(); handleBossJump(); highlightTouch('Jump'); }
+                } else {
+                    if (e.key === 'z' || e.key === 'ArrowLeft') { handleMove(-1); highlightTouch('Left'); }
+                    else if (e.key === 'x' || e.key === 'ArrowRight') { handleMove(1); highlightTouch('Right'); }
+                    else if (e.code === 'Space') { e.preventDefault(); handleJump(); highlightTouch('Jump'); }
+                }
+            }
+        });
+
+        document.getElementById('touchLeft').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING' && !isBossMode) { handleMove(-1); highlightTouch('Left'); } });
+        document.getElementById('touchRight').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING' && !isBossMode) { handleMove(1); highlightTouch('Right'); } });
+        document.getElementById('touchJump').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING') { isBossMode ? handleBossJump() : handleJump(); highlightTouch('Jump'); } });
+        function highlightTouch(side) { const el = document.getElementById('touch' + side); el.classList.add('active-touch'); setTimeout(() => el.classList.remove('active-touch'), 100); }
+        
+        document.getElementById('startBtn').addEventListener('click', () => { document.getElementById('startScreen').classList.add('opacity-0'); setTimeout(() => { document.getElementById('startScreen').classList.add('hidden'); initGame(); gameState = 'PLAYING'; }, 300); });
+        
+        quizStageData = generateStagePatterns(); initGame(); gameState = 'START'; document.getElementById('hudBottom').classList.add('opacity-0'); requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
