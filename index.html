@@ -22,12 +22,14 @@
         .energy-bar-container {
             width: 80%;
             max-width: 400px;
-            height: 20px;
-            background-color: rgba(0,0,0,0.5);
+            height: 26px;
+            background-color: rgba(0,0,0,0.7);
             border: 2px solid white;
-            border-radius: 10px;
+            border-radius: 13px;
             overflow: hidden;
             margin: 0 auto;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
         #energyBar {
             width: 100%;
@@ -72,23 +74,25 @@
     <div id="patternHintPanel" class="absolute left-0 top-1/4 z-10 pointer-events-none transition-opacity duration-300 hidden"></div>
 
     <!-- UI 레이어 (에너지바, 점수, 재화 표시) -->
-    <div id="uiLayer" class="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-20">
-        <div class="flex justify-between items-start mt-4">
-            <div class="text-left w-1/3">
-                <p id="currencyDisplay" class="text-lg font-bold text-gray-300 drop-shadow-md hidden">🪙 은화: <span id="silverCount">0</span> | ✨ EXP: <span id="expCount">0</span></p>
+    <div id="uiLayer" class="absolute inset-0 pointer-events-none flex flex-col p-4 z-20">
+        <div class="flex justify-between items-start mt-2">
+            <div class="text-left flex-1">
+                <p id="currencyDisplay" class="text-sm md:text-lg font-bold text-gray-300 drop-shadow-md hidden whitespace-nowrap">🪙 <span id="silverCount">0</span> | ✨ <span id="expCount">0</span></p>
             </div>
-            <div class="text-center w-1/3">
-                <h1 id="scoreDisplay" class="text-5xl font-black drop-shadow-md text-yellow-300 transition-transform transform scale-100">0</h1>
-                <p id="levelDisplay" class="text-xl font-bold mt-2 drop-shadow-md">LEVEL 1: 패턴의 시작</p>
-                <p id="comboDisplay" class="text-lg font-bold text-orange-400 mt-1 opacity-0 transition-opacity">0 COMBO!</p>
+            <div class="text-center flex-1 flex flex-col items-center">
+                <h1 id="scoreDisplay" class="text-5xl md:text-6xl font-black drop-shadow-md text-yellow-300 transition-transform transform scale-100">0</h1>
+                <p id="levelDisplay" class="text-base md:text-xl font-bold mt-1 text-white drop-shadow-md whitespace-nowrap">LEVEL 1: 패턴의 시작</p>
+                <p id="comboDisplay" class="text-sm md:text-lg font-bold text-orange-400 opacity-0 transition-opacity h-6">0 COMBO!</p>
+                
+                <!-- 하단에서 상단 점수판 바로 밑으로 이동된 에너지 바 -->
+                <div id="hudBottom" class="mt-2 w-full max-w-[300px] opacity-0 transition-opacity duration-300">
+                    <div class="energy-bar-container">
+                        <div id="energyBar"></div>
+                        <span class="absolute inset-0 flex items-center justify-center text-xs font-black text-white drop-shadow-md z-10 tracking-widest">ENERGY</span>
+                    </div>
+                </div>
             </div>
-            <div class="w-1/3"></div>
-        </div>
-
-        <div id="hudBottom" class="mb-8 opacity-0 transition-opacity duration-300">
-            <div class="energy-bar-container">
-                <div id="energyBar"></div>
-            </div>
+            <div class="flex-1"></div>
         </div>
     </div>
 
@@ -186,6 +190,9 @@
         <div class="flex flex-col space-y-3">
             <button id="retryBossBtn" class="bg-yellow-500 hover:bg-yellow-600 text-red-900 font-black py-3 px-12 rounded-full text-xl shadow-lg hidden transform transition hover:scale-105 active:scale-95" onclick="retryBoss()">
                 보스전 재도전 (-50점)
+            </button>
+            <button id="retryCheckpointBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-black py-3 px-12 rounded-full text-xl shadow-lg hidden transform transition hover:scale-105 active:scale-95" onclick="reviveFromCheckpoint()">
+                현재 스테이지 부활 (-30점)
             </button>
             <button id="restartBtn" class="bg-white text-red-900 hover:bg-gray-200 font-bold py-3 px-12 rounded-full text-xl shadow-lg transform transition hover:scale-105 active:scale-95" onclick="fullReset()">
                 처음부터 다시 하기
@@ -482,6 +489,48 @@
                 score -= 50;
                 document.getElementById('gameOverScreen').classList.add('hidden');
                 startBossMode(); 
+            }
+        }
+
+        function reviveFromCheckpoint() {
+            if (score >= 30) {
+                score -= 30;
+                
+                // 현재 인덱스에서 뒤로 탐색하며 가장 가까운 체크포인트(혹은 시작점) 찾기
+                let reviveIndex = player.index;
+                while (reviveIndex > 0 && stairs[reviveIndex].type !== 'checkpoint') {
+                    reviveIndex--;
+                }
+                
+                // 플레이어 상태를 체크포인트로 리셋
+                player.index = reviveIndex;
+                player.x = stairs[reviveIndex].x;
+                player.y = stairs[reviveIndex].y - 25;
+                player.vx = 0;
+                player.vy = 0;
+                player.dir = stairs[reviveIndex].dir;
+                player.isFalling = false;
+                
+                // 화면에 남은 파티클, 새 등 정리
+                particles = [];
+                activeFlocks = [];
+                
+                // 카메라 초기화
+                targetCameraX = cw / 2 - player.x; 
+                targetCameraY = ch * 0.7 - player.y;
+                cameraX = targetCameraX; 
+                cameraY = targetCameraY;
+                
+                // 게임 상태 복구
+                energy = maxEnergy;
+                combo = 0;
+                comboTimer = 0;
+                
+                document.getElementById('gameOverScreen').classList.add('hidden');
+                document.getElementById('hudBottom').classList.remove('opacity-0');
+                
+                updateUI();
+                gameState = 'PLAYING';
             }
         }
 
@@ -1175,8 +1224,14 @@
             
             if (isBossFail && score >= 50) {
                 document.getElementById('retryBossBtn').classList.remove('hidden');
+                document.getElementById('retryCheckpointBtn').classList.add('hidden');
+            } else if (!isBossFail && score >= 30) {
+                // 일반 모드에서 죽었고 점수가 30점 이상이면 체크포인트 부활 버튼 표시
+                document.getElementById('retryBossBtn').classList.add('hidden');
+                document.getElementById('retryCheckpointBtn').classList.remove('hidden');
             } else {
                 document.getElementById('retryBossBtn').classList.add('hidden');
+                document.getElementById('retryCheckpointBtn').classList.add('hidden');
             }
 
             setTimeout(() => document.getElementById('gameOverScreen').classList.remove('hidden'), 500); 
@@ -1252,9 +1307,10 @@
             }
         });
 
-        document.getElementById('touchLeft').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING' && !isBossMode) { handleMove(-1); highlightTouch('Left'); } });
-        document.getElementById('touchRight').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING' && !isBossMode) { handleMove(1); highlightTouch('Right'); } });
-        document.getElementById('touchJump').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING') { isBossMode ? handleBossJump() : handleJump(); highlightTouch('Jump'); } });
+        // 모바일 터치 이벤트 오류 수정 (passive: false 속성을 명시적으로 부여하여 터치 끊김 현상 방지)
+        document.getElementById('touchLeft').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING' && !isBossMode) { handleMove(-1); highlightTouch('Left'); } }, { passive: false });
+        document.getElementById('touchRight').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING' && !isBossMode) { handleMove(1); highlightTouch('Right'); } }, { passive: false });
+        document.getElementById('touchJump').addEventListener('touchstart', (e) => { e.preventDefault(); if(gameState==='PLAYING') { isBossMode ? handleBossJump() : handleJump(); highlightTouch('Jump'); } }, { passive: false });
         function highlightTouch(side) { const el = document.getElementById('touch' + side); el.classList.add('active-touch'); setTimeout(() => el.classList.remove('active-touch'), 100); }
         
         document.getElementById('startBtn').addEventListener('click', () => { document.getElementById('startScreen').classList.add('opacity-0'); setTimeout(() => { document.getElementById('startScreen').classList.add('hidden'); initGame(); gameState = 'PLAYING'; }, 300); });
